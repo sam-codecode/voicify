@@ -1,2 +1,2 @@
-# voicify
-Tandoori techies presents real-time Malaysian Sign Language Recognition which aims to bridge the communication gap for the deaf and hard-of-hearing community by providing an AI-powered application.
+# Voicify
+Voicify aims to bridge the communication gap for the deaf and hard-of-hearing community by providing an AI-powered application that translates sign language into both text and voice in real-time. By leveraging Google AI technologies, Voicify enhances accessibility, fosters inclusion, and supports quality education (SDG 4) by enabling seamless interaction between sign language users and the broader community.
