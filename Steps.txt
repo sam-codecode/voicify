@@ -1,0 +1,195 @@
+Step 1 : Install python and libraries
+Python 3.9.13
+Libraries :
+pip install opencv-python
+pip install tensorflow==2.10.0
+pip install keras==2.10.0
+pip install numpy==1.22.x
+pip install pandas==1.4.x
+pip install protobuf==3.19.4
+pip install mediapipe==0.8.11
+pip install scikit-learn 1.1.x
+
+
+Step 2 : 
+Prepare data !
+
+Code :
+
+import cv2
+import mediapipe as mp
+import numpy as np
+import pandas as pd
+
+cap = cv2.VideoCapture(0)
+
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1)
+mp_draw = mp.solutions.drawing_utils
+
+data = []
+label = input("Enter the label for this recording (e.g., ONE, TWO, A, B): ")
+frame_count = 0
+max_frames = 500
+
+while True:
+    success, frame = cap.read()
+    if not success:
+        continue
+
+    frame = cv2.flip(frame, 1)
+    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = hands.process(img_rgb)
+
+    if result.multi_hand_landmarks:
+        for hand_landmarks in result.multi_hand_landmarks:
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            landmarks = []
+            for lm in hand_landmarks.landmark:
+                landmarks.append(lm.x)
+                landmarks.append(lm.y)
+
+            data.append(landmarks + [label])
+            frame_count += 1
+
+            cv2.putText(frame, f'Captured: {frame_count}/{max_frames}', (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+            if frame_count >= max_frames:
+                break
+
+    resized_frame = cv2.resize(frame, (800, 600))
+    cv2.imshow('Hand Landmark Capture', resized_frame)
+
+    if cv2.waitKey(1) & 0xFF == 27 or frame_count >= max_frames:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
+df = pd.DataFrame(data)
+df.to_csv(f'{label}_dataset.csv', index=False)
+print(f'Dataset for "{label}" saved as {label}_dataset.csv')
+
+:: MAKE SURE YOU SAVED ALL THOSE EXCEL SHEETS IN A SINGLE FOLDER ( named : datasets)
+
+Step 3 : Combine datasheet into single excel sheet
+
+import pandas as pd
+import glob
+
+# Assuming all your gesture CSVs are in 'datasets' folder
+csv_files = glob.glob('datasets/*.csv')
+
+df_list = [pd.read_csv(file) for file in csv_files]
+full_data = pd.concat(df_list, ignore_index=True)
+full_data.to_csv('full_landmark_dataset.csv', index=False)
+
+print("All datasets combined into full_landmark_dataset.csv")
+
+Step 4 : Training Phase ( Try to train using GPU for super fast , if CPU you have to wait long time , " Ikut CPU actually")
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.utils import to_categorical
+import pickle
+
+columns = [f'x{i}' if i % 2 == 0 else f'y{i//2}' for i in range(42)] + ['label']
+df = pd.read_csv('full_landmark_dataset.csv', header=None, names=columns)
+
+X = df.drop('label', axis=1).values
+y = df['label'].values
+
+encoder = LabelEncoder()
+y_encoded = encoder.fit_transform(y)
+y_categorical = to_categorical(y_encoded)
+
+with open('label_encoder.pkl', 'wb') as f:
+    pickle.dump(encoder, f)
+
+X_train, X_val, y_train, y_val = train_test_split(X, y_categorical, test_size=0.2, random_state=42)
+
+model = Sequential()
+model.add(Dense(256, activation='relu', input_shape=(X.shape[1],)))
+model.add(Dropout(0.3))
+model.add(Dense(128, activation='relu'))
+model.add(Dropout(0.3))
+model.add(Dense(y_categorical.shape[1], activation='softmax'))
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+model.fit(X_train, y_train, epochs=35, batch_size=32, validation_data=(X_val, y_val))
+
+model.save('hand_gesture_model.h5')
+print("Model trained and saved as hand_gesture_model.h5")
+
+Step 5 : Testing real-time
+
+import cv2
+import mediapipe as mp
+import numpy as np
+from tensorflow.keras.models import load_model
+
+model = load_model('hand_gesture_model.h5')
+
+labels = ['42', 'A', 'B', 'C', 'D', 'EIGHT', 'E', 'FIVE', 'FOUR', 'F', 'G', 'H', 'I', 'J', 'K',
+          'L', 'M', 'NINE', 'N', 'ONE', 'O', 'P', 'Q', 'R', 'SEVEN', 'SIX', 'S', 'TEN', 'THREE',
+          'TWO', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1)
+mp_draw = mp.solutions.drawing_utils
+
+cap = cv2.VideoCapture(0)
+
+while True:
+    success, frame = cap.read()
+    if not success:
+        continue
+
+    frame = cv2.flip(frame, 1)
+    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = hands.process(img_rgb)
+
+    prediction_text = "No Hand Detected"
+    if result.multi_hand_landmarks:
+        for hand_landmarks in result.multi_hand_landmarks:
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            landmarks = []
+            for lm in hand_landmarks.landmark:
+                landmarks.append(lm.x)
+                landmarks.append(lm.y)
+
+            if len(landmarks) == 42:
+                landmarks_np = np.array(landmarks).reshape(1, -1)
+                landmarks_np = landmarks_np / np.max(landmarks_np)
+
+                prediction = model.predict(landmarks_np)[0]
+                class_id = np.argmax(prediction)
+
+                if class_id >= len(labels):
+                    class_id = 0
+
+                gesture = labels[class_id]
+                confidence = np.max(prediction) * 100
+                prediction_text = f"Gesture: {gesture} ({confidence:.2f}%)"
+
+    resized_frame = cv2.resize(frame, (800, 600))
+    cv2.putText(resized_frame, prediction_text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                1.2, (0, 255, 0), 2)
+    cv2.imshow("Real-Time Gesture Recognition", resized_frame)
+
+    if cv2.waitKey(1) & 0xFF == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
+
+
